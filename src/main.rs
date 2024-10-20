@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 type Callback = Box<dyn Fn() + Send + 'static>;
-type OnceCallback = Box<dyn FnOnce() + Send + 'static>;
 type Listeners = Arc<Mutex<HashMap<String, Vec<Callback>>>>;
 
 #[derive(Clone, Default)]
@@ -16,24 +15,30 @@ impl EventEmitter {
         Self::default()
     }
 
-    fn on(&self, event: impl Into<String>, callback: Callback) {
+    fn on<F>(&self, event: impl Into<String>, callback: F)
+    where
+        F: Fn() + Send + 'static
+    {
         let mut listeners = self.listeners.lock().unwrap();
-        listeners.entry(event.into()).or_default().push(callback);
+        listeners.entry(event.into()).or_default().push(Box::new(callback));
     }
 
-    fn once(&self, event: impl Into<String>, callback: OnceCallback) {
+    fn once<F>(&self, event: impl Into<String>, callback: F)
+    where
+        F: FnOnce() + Send + 'static
+    {
         let weak_self = Arc::downgrade(&Arc::new(self.clone()));
         let event = event.into();
         let event_clone = event.clone();
         let callback = Mutex::new(Some(callback));
-        self.on(event, Box::new(move || {
+        self.on(event, move || {
             if let Some(strong_self) = weak_self.upgrade() {
                 strong_self.remove_listener(&event_clone, Box::new(|| {}));
             }
             if let Some(cb) = callback.lock().unwrap().take() {
                 cb();
             }
-        }));
+        });
     }
 
     fn emit(&self, event: &str) {
@@ -77,14 +82,14 @@ async fn main() {
     println!("Main: Waiting for the flag to be set...");
 
     // Set up a one-time listener for the 'flag_set' event
-    emitter.once("flag_set", Box::new(|| {
+    emitter.once("flag_set", || {
         println!("Main: Flag is set, one-time listener triggered.");
-    }));
+    });
 
     // Set up a regular listener for the 'flag_set' event
-    emitter.on("flag_set", Box::new(|| {
+    emitter.on("flag_set", || {
         println!("Main: Flag is set, regular listener triggered.");
-    }));
+    });
 
     // Wait for the event to be emitted
     tokio::time::sleep(Duration::from_secs(2)).await;
