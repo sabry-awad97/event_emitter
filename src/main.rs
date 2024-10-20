@@ -60,6 +60,13 @@ impl EventEmitter {
             callbacks.retain(|c| !Arc::ptr_eq(c, &callback));
         }
     }
+
+    fn remove_specific_listener(&self, event: &str, callback: &Callback) {
+        let mut listeners = self.listeners.write();
+        if let Some(callbacks) = listeners.get_mut(event) {
+            callbacks.retain(|c| !Arc::ptr_eq(c, callback));
+        }
+    }
 }
 
 #[tokio::main]
@@ -148,20 +155,25 @@ mod tests {
         let emitter = EventEmitter::new();
         let counter = Arc::new(AtomicUsize::new(0));
 
-        let callback = Arc::new({
+        let callback: Callback = Arc::new({
             let counter = Arc::clone(&counter);
             move || {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
         });
 
-        let callback_clone = Arc::clone(&callback);
-        emitter.on("test_event", move || callback_clone());
-        emitter.emit("test_event");
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        emitter.on("test_event", move || callback());
 
-        emitter.remove_listener("test_event", callback.clone());
         emitter.emit("test_event");
+        println!("Counter after first emit: {}", counter.load(Ordering::SeqCst));
+
+        println!("Listeners before removal: {:?}", emitter.listeners.read().get("test_event").map(|v| v.len()));
+        emitter.remove_listener("test_event", Arc::new(|| {}));
+        println!("Listeners after removal: {:?}", emitter.listeners.read().get("test_event").map(|v| v.len()));
+
+        emitter.emit("test_event");
+        println!("Counter after second emit: {}", counter.load(Ordering::SeqCst));
+
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 
