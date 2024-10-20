@@ -1,8 +1,8 @@
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 type Callback = Arc<dyn Fn() + Send + Sync + 'static>;
 type Listeners = Arc<RwLock<HashMap<String, Vec<(usize, Callback)>>>>;
@@ -72,12 +72,9 @@ impl EventEmitter {
         }
     }
 
-    #[allow(dead_code)]
-    fn remove_specific_listener(&self, event: &str, callback: &Callback) {
+    fn remove_listeners(&self, event: &str) {
         let mut listeners = self.listeners.write();
-        if let Some(callbacks) = listeners.get_mut(event) {
-            callbacks.retain(|(_, cb)| !Arc::ptr_eq(cb, callback));
-        }
+        listeners.remove(event);
     }
 }
 
@@ -114,6 +111,14 @@ async fn main() {
 
     // Emit the event again to demonstrate the difference between 'on' and 'once'
     println!("Main: Emitting 'flag_set' event again.");
+    emitter.emit("flag_set");
+
+    // Remove all listeners for the 'flag_set' event
+    println!("Main: Removing all listeners for 'flag_set' event.");
+    emitter.remove_listeners("flag_set");
+
+    // Emit the event once more to show that no listeners are triggered
+    println!("Main: Emitting 'flag_set' event after removing all listeners.");
     emitter.emit("flag_set");
 
     // Wait for the spawned task to finish
@@ -175,14 +180,26 @@ mod tests {
         });
 
         emitter.emit("test_event");
-        println!("Counter after first emit: {}", counter.load(Ordering::SeqCst));
+        println!(
+            "Counter after first emit: {}",
+            counter.load(Ordering::SeqCst)
+        );
 
-        println!("Listeners before removal: {:?}", emitter.listeners.read().get("test_event").map(|v| v.len()));
+        println!(
+            "Listeners before removal: {:?}",
+            emitter.listeners.read().get("test_event").map(|v| v.len())
+        );
         emitter.remove_listener("test_event", callback_id);
-        println!("Listeners after removal: {:?}", emitter.listeners.read().get("test_event").map(|v| v.len()));
+        println!(
+            "Listeners after removal: {:?}",
+            emitter.listeners.read().get("test_event").map(|v| v.len())
+        );
 
         emitter.emit("test_event");
-        println!("Counter after second emit: {}", counter.load(Ordering::SeqCst));
+        println!(
+            "Counter after second emit: {}",
+            counter.load(Ordering::SeqCst)
+        );
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
@@ -218,5 +235,35 @@ mod tests {
         let emitter = EventEmitter::new();
         // This should not panic or cause any errors
         emitter.emit("non_existent_event");
+    }
+
+    #[test]
+    fn test_remove_listeners() {
+        let emitter = EventEmitter::new();
+        let counter1 = Arc::new(AtomicUsize::new(0));
+        let counter2 = Arc::new(AtomicUsize::new(0));
+
+        emitter.on("test_event", {
+            let counter = Arc::clone(&counter1);
+            move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+
+        emitter.on("test_event", {
+            let counter = Arc::clone(&counter2);
+            move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+
+        emitter.emit("test_event");
+        assert_eq!(counter1.load(Ordering::SeqCst), 1);
+        assert_eq!(counter2.load(Ordering::SeqCst), 1);
+
+        emitter.remove_listeners("test_event");
+        emitter.emit("test_event");
+        assert_eq!(counter1.load(Ordering::SeqCst), 1);
+        assert_eq!(counter2.load(Ordering::SeqCst), 1);
     }
 }
