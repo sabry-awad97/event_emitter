@@ -9,5 +9,5 @@ fn main() {
         }
     });
 
-    emitter.emit("greet", &[Box::new("World".to_string())]);
+    emitter.emit("greet", &[&"World".to_string()]);
 }

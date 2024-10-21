@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-type Callback = Arc<dyn Fn(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static>;
+type Callback = Arc<dyn Fn(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static>;
 type Listeners = Arc<RwLock<HashMap<String, Vec<(usize, Callback)>>>>;
 
 #[derive(Clone)]
@@ -41,7 +41,7 @@ impl EventEmitter {
     /// The ID of the registered listener, which can be used to remove it later.
     pub fn on<F>(&self, event: impl Into<String>, callback: F) -> usize
     where
-        F: Fn(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static,
+        F: Fn(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static,
     {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let mut listeners = self.listeners.write();
@@ -60,7 +60,7 @@ impl EventEmitter {
     /// * `callback` - The callback function to be called when the event is emitted.
     pub fn once<F>(&self, event: impl Into<String>, callback: F)
     where
-        F: FnOnce(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static,
+        F: FnOnce(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static,
     {
         let weak_self = Arc::downgrade(&Arc::new(self.clone()));
         let event = event.into();
@@ -86,7 +86,7 @@ impl EventEmitter {
     ///
     /// * `event` - The name of the event to emit.
     /// * `args` - The arguments to pass to the event listeners.
-    pub fn emit(&self, event: &str, args: &[Box<dyn Any + Send + Sync>]) {
+    pub fn emit(&self, event: &str, args: &[&(dyn Any + Send + Sync)]) {
         let listeners = self.listeners.read();
         if let Some(callbacks) = listeners.get(event) {
             for (_, callback) in callbacks {
@@ -147,7 +147,7 @@ impl EventEmitter {
     /// * `callback` - The callback function to be called when the event is emitted.
     pub fn prepend_listener<F>(&self, event: impl Into<String>, callback: F) -> usize
     where
-        F: Fn(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static,
+        F: Fn(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static,
     {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let mut listeners = self.listeners.write();
@@ -166,7 +166,7 @@ impl EventEmitter {
     /// * `callback` - The callback function to be called when the event is emitted.
     pub fn prepend_once_listener<F>(&self, event: impl Into<String>, callback: F)
     where
-        F: FnOnce(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static,
+        F: FnOnce(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static,
     {
         let weak_self = Arc::downgrade(&Arc::new(self.clone()));
         let event = event.into();
@@ -228,7 +228,7 @@ mod tests {
 
         emitter.on("test_event", {
             let counter = Arc::clone(&counter);
-            move |_args| {
+            move |_args: &[&(dyn Any + Send + Sync)]| {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
         });
@@ -246,7 +246,7 @@ mod tests {
 
         emitter.once("test_event", {
             let counter = Arc::clone(&counter);
-            move |_args| {
+            move |_args: &[&(dyn Any + Send + Sync)]| {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
         });
@@ -264,7 +264,7 @@ mod tests {
 
         let callback_id = emitter.on("test_event", {
             let counter = Arc::clone(&counter);
-            move |_args| {
+            move |_args: &[&(dyn Any + Send + Sync)]| {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
         });
@@ -286,7 +286,7 @@ mod tests {
 
         emitter.on("test_event", {
             let counter = Arc::clone(&counter1);
-            move |_args| {
+            move |_args: &[&(dyn Any + Send + Sync)]| {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
         });
