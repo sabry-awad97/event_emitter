@@ -7,6 +7,13 @@ pub trait IntoArgs {
 
 // Macro to implement IntoArgs for tuples
 macro_rules! impl_into_args {
+    () => {
+        impl IntoArgs for () {
+            fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
+                Vec::new()
+            }
+        }
+    };
     ($($T:ident),+) => {
         impl<$($T),+> IntoArgs for ($($T,)+)
         where
@@ -21,7 +28,8 @@ macro_rules! impl_into_args {
     };
 }
 
-// Generate implementations for tuples of 1 to 5 elements
+// Generate implementations for tuples of 0 to 5 elements
+impl_into_args!();
 impl_into_args!(T0);
 impl_into_args!(T0, T1);
 impl_into_args!(T0, T1, T2);
@@ -39,7 +47,19 @@ macro_rules! count {
     ($T:ident $(,$rest:ident)*) => { 1 + count!($($rest),*) };
 }
 
+// Macro to implement FromArgs for tuples
 macro_rules! impl_from_args {
+    () => {
+        impl FromArgs for () {
+            fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
+                if args.is_empty() {
+                    Some(())
+                } else {
+                    None
+                }
+            }
+        }
+    };
     ($($T:ident),+) => {
         #[allow(unused_assignments)]
         impl<$($T),+> FromArgs for ($($T,)+)
@@ -66,12 +86,13 @@ macro_rules! impl_from_args {
     };
 }
 
-// Generate implementations for tuples of 1 to 5 elements
-impl_from_args!(T1);
-impl_from_args!(T1, T2);
-impl_from_args!(T1, T2, T3);
-impl_from_args!(T1, T2, T3, T4);
-impl_from_args!(T1, T2, T3, T4, T5);
+// Generate implementations for tuples of 0 to 5 elements
+impl_from_args!();
+impl_from_args!(T0);
+impl_from_args!(T0, T1);
+impl_from_args!(T0, T1, T2);
+impl_from_args!(T0, T1, T2, T3);
+impl_from_args!(T0, T1, T2, T3, T4);
 
 #[cfg(test)]
 mod tests {
