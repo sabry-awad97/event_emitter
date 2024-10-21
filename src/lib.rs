@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 type Callback = Arc<dyn Fn(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static>;
 type Listeners = Arc<RwLock<HashMap<String, Vec<(usize, Callback)>>>>;
 
+mod args_macro;
+
 #[derive(Clone)]
 pub struct EventEmitter {
     listeners: Listeners,
