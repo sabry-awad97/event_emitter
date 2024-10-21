@@ -133,7 +133,7 @@ impl EventEmitter {
         id
     }
 
-    pub fn emit<A, E>(&self, event: E, args: A) -> Result<(), EventEmitterError>
+    pub fn emit<A, E>(&self, event: E, args: A)
     where
         A: IntoArgs,
         E: IntoEvent,
@@ -176,13 +176,11 @@ impl EventEmitter {
                 "Finished emitting event '{}'. All handlers executed.",
                 event
             );
-            Ok(())
         } else {
             warn!(
                 "No handlers found for event '{}'. Event not emitted.",
                 event
             );
-            Err(EventEmitterError::NoHandlersFound(event.to_string()))
         }
     }
 
@@ -250,7 +248,7 @@ mod tests {
             tx.send(args.0).unwrap();
         });
 
-        emitter.emit("test", (42,)).unwrap();
+        emitter.emit("test", (42,));
         assert_eq!(rx.recv().unwrap(), 42);
     }
 
