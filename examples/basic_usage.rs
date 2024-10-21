@@ -21,17 +21,23 @@ fn main() {
     });
 
     // Simulate user activities
-    emitter.emit("user_login", ("alice".to_string(), 1623456789u64));
-    emitter.emit("user_login", ("bob".to_string(), 1623456790u64));
-    emitter.emit("user_logout", ("alice".to_string(),));
+    emitter
+        .emit("user_login", ("alice".to_string(), 1623456789u64))
+        .unwrap();
+    emitter
+        .emit("user_login", ("bob".to_string(), 1623456790u64))
+        .unwrap();
+    emitter.emit("user_logout", ("alice".to_string(),)).unwrap();
 
     emitter.remove_listener("user_login", id);
 
     // This login event will be logged
-    emitter.emit("user_login", ("charlie".to_string(), 1623456791u64));
+    emitter
+        .emit("user_login", ("charlie".to_string(), 1623456791u64))
+        .unwrap();
 
     // We can still see logout events
-    emitter.emit("user_logout", ("bob".to_string(),));
+    emitter.emit("user_logout", ("bob".to_string(),)).unwrap();
 
     // Print the number of listeners for each event
     println!(

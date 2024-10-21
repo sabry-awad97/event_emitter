@@ -4,8 +4,10 @@ use parking_lot::{Mutex, RwLock};
 use smallvec::SmallVec;
 use std::any::Any;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use thiserror::Error;
 
 mod args_macro;
 
@@ -26,19 +28,43 @@ where
 
 type ListenerMap = Arc<RwLock<HashMap<String, SmallVec<[(usize, Arc<dyn EventHandler>); 4]>>>>;
 
+// Define custom error types
+#[derive(Error, Debug)]
+pub enum EventEmitterError {
+    #[error("Failed to convert arguments for event '{0}'")]
+    ArgumentConversionError(String),
+    #[error("No handlers found for event '{0}'")]
+    NoHandlersFound(String),
+}
+
 // EventEmitter struct
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct EventEmitter {
     listeners: ListenerMap,
     next_id: Arc<AtomicUsize>,
+    max_listeners: NonZeroUsize,
+}
+
+impl Default for EventEmitter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventEmitter {
     pub fn new() -> Self {
-        debug!("Creating new EventEmitter");
+        Self::with_capacity(NonZeroUsize::new(10).unwrap())
+    }
+
+    pub fn with_capacity(max_listeners: NonZeroUsize) -> Self {
+        debug!(
+            "Creating new EventEmitter with max_listeners: {}",
+            max_listeners
+        );
         EventEmitter {
             listeners: Arc::new(RwLock::new(HashMap::new())),
-            next_id: Arc::new(AtomicUsize::new(0)),
+            next_id: Arc::new(AtomicUsize::new(1)), // Start from 1 to avoid 0 as a valid ID
+            max_listeners,
         }
     }
 
@@ -104,7 +130,7 @@ impl EventEmitter {
         id
     }
 
-    pub fn emit<A>(&self, event: &str, args: A)
+    pub fn emit<A>(&self, event: &str, args: A) -> Result<(), EventEmitterError>
     where
         A: IntoArgs,
     {
@@ -122,33 +148,36 @@ impl EventEmitter {
                     handlers.len(),
                     event
                 );
-                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     handler.call(&args);
                 })) {
-                    Ok(_) => trace!(
-                        "Handler {} (ID: {}) for event '{}' executed successfully",
-                        index + 1,
-                        id,
-                        event
-                    ),
-                    Err(e) => error!(
+                    error!(
                         "Handler {} (ID: {}) for event '{}' panicked: {:?}",
                         index + 1,
                         id,
                         event,
                         e
-                    ),
+                    );
+                } else {
+                    trace!(
+                        "Handler {} (ID: {}) for event '{}' executed successfully",
+                        index + 1,
+                        id,
+                        event
+                    );
                 }
             }
             info!(
                 "Finished emitting event '{}'. All handlers executed.",
                 event
             );
+            Ok(())
         } else {
             warn!(
                 "No handlers found for event '{}'. Event not emitted.",
                 event
             );
+            Err(EventEmitterError::NoHandlersFound(event.to_string()))
         }
     }
 
@@ -189,4 +218,34 @@ impl EventEmitter {
             warn!("No listeners found for event '{}'", event);
         }
     }
+
+    pub fn set_max_listeners(&mut self, max: NonZeroUsize) {
+        debug!("Setting max listeners to {}", max);
+        self.max_listeners = max;
+    }
+
+    pub fn get_max_listeners(&self) -> NonZeroUsize {
+        self.max_listeners
+    }
+}
+
+// Add tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_event_emitter() {
+        let emitter = EventEmitter::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        emitter.on("test", move |args: (i32,)| {
+            tx.send(args.0).unwrap();
+        });
+
+        emitter.emit("test", (42,)).unwrap();
+        assert_eq!(rx.recv().unwrap(), 42);
+    }
+
+    // Add more tests...
 }
