@@ -6,7 +6,7 @@ fn main() {
     let emitter = EventEmitter::new();
 
     // Register a listener for the "user_login" event
-    emitter.on("user_login", |(username, timestamp): (String, u64)| {
+    let id = emitter.on("user_login", |(username, timestamp): (String, u64)| {
         println!(
             "{} '{}' logged in at timestamp: {}",
             "User".green(),
@@ -25,7 +25,7 @@ fn main() {
     emitter.emit("user_login", ("bob".to_string(), 1623456790u64));
     emitter.emit("user_logout", ("alice".to_string(),));
 
-    emitter.remove_listener("user_login");
+    emitter.remove_listener("user_login", id);
 
     // This login event will be logged
     emitter.emit("user_login", ("charlie".to_string(), 1623456791u64));
@@ -37,12 +37,12 @@ fn main() {
     println!(
         "{} for 'user_login': {}",
         "Active listeners".yellow(),
-        emitter.listeners("user_login").len().to_string().red()
+        emitter.listeners_count("user_login").to_string().red()
     );
 
     println!(
         "{} for 'user_logout': {}",
         "Active listeners".yellow(),
-        emitter.listeners("user_logout").len().to_string().red()
+        emitter.listeners_count("user_logout").to_string().red()
     );
 }
