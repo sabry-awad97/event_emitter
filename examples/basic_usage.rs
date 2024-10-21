@@ -1,7 +1,6 @@
 use event_emitter::EventEmitter;
 
 fn main() {
-    // Create a new EventEmitter instance
     let emitter = EventEmitter::new();
 
     // Register a listener for the "user_login" event
@@ -15,14 +14,14 @@ fn main() {
     });
 
     // Simulate user activities
-    emitter.emit("user_login", ("alice".to_string(), 1623456789));
-    emitter.emit("user_login", ("bob".to_string(), 1623456790));
+    emitter.emit("user_login", ("alice".to_string(), 1623456789u64));
+    emitter.emit("user_login", ("bob".to_string(), 1623456790u64));
     emitter.emit("user_logout", ("alice".to_string(),));
 
-    // This login event won't be logged because we removed the listener
-    emitter.emit("user_login", ("charlie".to_string(), 1623456791));
+    // This login event will be logged
+    emitter.emit("user_login", ("charlie".to_string(), 1623456791u64));
 
-    // But we can still see logout events
+    // We can still see logout events
     emitter.emit("user_logout", ("bob".to_string(),));
 
     // Print the number of listeners for each event

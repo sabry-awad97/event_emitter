@@ -1,83 +1,82 @@
 use std::any::Any;
 
-type Args = Vec<Box<dyn Any + Send + Sync>>;
+type AnyArgs = Vec<Box<dyn Any + Send + Sync>>;
 
-// Define the trait `IntoArgs`
-pub trait IntoArgs {
-    fn into_args(self) -> Args;
-}
-
-impl IntoArgs for () {
-    fn into_args(self) -> Args {
-        vec![]
-    }
-}
-
-impl<T: Send + Sync + 'static> IntoArgs for (T,) {
-    fn into_args(self) -> Args {
-        vec![Box::new(self.0)]
-    }
-}
-
-impl<T: Send + Sync + 'static + Clone, U: Send + Sync + 'static + Clone> IntoArgs for (T, U) {
-    fn into_args(self) -> Args {
-        vec![Box::new(self.0), Box::new(self.1)]
-    }
-}
-
-// Define the trait `FromArgs`
+// Trait for converting from boxed Any arguments
 pub trait FromArgs: Sized {
-    fn from_args(args: &Args) -> Option<Self>;
+    fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self>;
 }
 
-impl FromArgs for () {
-    fn from_args(_args: &Args) -> Option<Self> {
-        Some(())
-    }
+// Trait for converting into boxed Any arguments
+pub trait IntoArgs {
+    fn into_args(self) -> AnyArgs;
 }
 
-impl<T: Send + Sync + 'static + Clone> FromArgs for (T,) {
-    fn from_args(args: &Args) -> Option<Self> {
-        args.first()
-            .and_then(|arg| arg.downcast_ref::<T>())
-            .cloned()
-            .map(|t| (t,))
-    }
-}
-
-impl<T: Send + Sync + 'static + Clone, U: Send + Sync + 'static + Clone> FromArgs for (T, U) {
-    fn from_args(args: &Args) -> Option<Self> {
-        if args.len() < 2 {
-            return None;
+// Macro to implement FromArgs and IntoArgs for tuples of varying sizes
+macro_rules! impl_from_args_for_tuples {
+    // Match for tuples of various sizes
+    ($($T:ident),+) => {
+        #[allow(non_snake_case)]
+        impl<$($T),+> FromArgs for ($($T,)+)
+        where
+            $($T: 'static + Clone + Send + Sync),+
+        {
+            fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
+                if args.len() == count!($($T),+) {
+                    Some((
+                        $(
+                            args[count_index!($T)].downcast_ref::<$T>()?.clone(),
+                        )+
+                    ))
+                } else {
+                    None
+                }
+            }
         }
-        let t = args[0].downcast_ref::<T>().cloned()?;
-        let u = args[1].downcast_ref::<U>().cloned()?;
-        Some((t, u))
-    }
+
+        #[allow(non_snake_case)]
+        impl<$($T),+> IntoArgs for ($($T,)+)
+        where
+            $($T: 'static + Clone + Send + Sync),+
+        {
+            fn into_args(self) -> AnyArgs {
+                let ($($T,)+) = self;
+                vec![$(Box::new($T) as Box<dyn Any + Send + Sync>),+]
+            }
+        }
+    };
 }
 
-// Helper macros for counting tuple elements
+// Helper macro to count tuple elements
 macro_rules! count {
     ($($T:ident),+) => {
         <[()]>::len(&[$(replace_expr!($T ())),+])
     };
 }
 
+// Helper macro to generate indices for tuple elements
 macro_rules! count_index {
     ($T:ident) => {
-        replace_expr!($T 0)
+        0
     };
     ($T1:ident, $($T:ident),+) => {
         1 + count_index!($($T),+)
     };
 }
 
-// Helper macro to ignore the expression and substitute a replacement
+// Helper macro to replace the expression with a substitute
 macro_rules! replace_expr {
     ($_t:tt $sub:expr) => {
         $sub
     };
 }
+
+// Implement for tuples of sizes up to 5 (you can extend as needed)
+impl_from_args_for_tuples!(T1);
+impl_from_args_for_tuples!(T1, T2);
+impl_from_args_for_tuples!(T1, T2, T3);
+impl_from_args_for_tuples!(T1, T2, T3, T4);
+impl_from_args_for_tuples!(T1, T2, T3, T4, T5);
 
 #[cfg(test)]
 mod tests {
@@ -113,5 +112,12 @@ mod tests {
     #[test]
     fn test_complex_count_index() {
         assert_eq!(count_index!(A, B, C, D, E, F, G, H, I, J), 9);
+    }
+
+    #[test]
+    fn test_impl_from_args_for_tuples() {
+        let args: Vec<Box<dyn Any + Send + Sync>> = vec![Box::new(1), Box::new(2)];
+        let result: Option<(i32, i32)> = FromArgs::from_args(&args);
+        assert_eq!(result, Some((1, 2)));
     }
 }

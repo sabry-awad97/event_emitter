@@ -1,200 +1,75 @@
-use args_macro::{FromArgs, IntoArgs};
-use parking_lot::RwLock;
 use std::any::Any;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+
+use args_macro::{FromArgs, IntoArgs};
 
 mod args_macro;
 
-type Args = Vec<Box<dyn Any + Send + Sync>>;
-type Callback = Arc<dyn Fn(&Args) + Send + Sync + 'static>;
-type Listeners = Arc<RwLock<HashMap<String, Vec<(usize, Callback)>>>>;
-
-#[derive(Clone)]
-pub struct EventEmitter {
-    listeners: Listeners,
-    next_id: Arc<AtomicUsize>,
+// EventHandler trait modification
+pub trait EventHandler: Send + Sync {
+    fn call(&self, args: &[Box<dyn Any + Send + Sync>]);
 }
 
-impl Default for EventEmitter {
-    /// Creates a new `EventEmitter`.
-    fn default() -> Self {
-        Self::new()
+// Implement EventHandler for closures
+impl<F> EventHandler for F
+where
+    F: Fn(&[Box<dyn Any + Send + Sync>]) + Send + Sync,
+{
+    fn call(&self, args: &[Box<dyn Any + Send + Sync>]) {
+        self(args);
     }
+}
+
+type ListenerMap = Arc<Mutex<HashMap<String, Vec<Arc<dyn EventHandler>>>>>;
+
+// EventEmitter struct
+#[derive(Clone, Default)]
+pub struct EventEmitter {
+    listeners: ListenerMap,
 }
 
 impl EventEmitter {
-    /// Creates a new `EventEmitter`.
     pub fn new() -> Self {
-        Self {
-            listeners: Arc::new(RwLock::new(HashMap::new())),
-            next_id: Arc::new(AtomicUsize::new(0)),
+        EventEmitter {
+            listeners: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Registers a callback for the specified event.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event name to listen for.
-    /// * `callback` - The callback function to be called when the event is emitted.
-    ///
-    /// # Returns
-    ///
-    /// The ID of the registered listener, which can be used to remove it later.
-    pub fn on<F, A>(&self, event: impl Into<String>, callback: F) -> usize
+    pub fn on<F, Args>(&self, event: &str, callback: F)
     where
-        F: Fn(A) + Send + Sync + 'static,
-        A: FromArgs,
+        F: Fn(Args) + Send + Sync + 'static,
+        Args: FromArgs,
     {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let wrapped_callback = Arc::new(move |args: &Args| {
-            if let Some(arg) = A::from_args(args) {
-                callback(arg);
-            }
-        });
-        let mut listeners = self.listeners.write();
+        let mut listeners = self.listeners.lock().unwrap();
         listeners
-            .entry(event.into())
+            .entry(event.to_string())
             .or_default()
-            .push((id, wrapped_callback));
-        id
+            .push(Arc::new(move |args: &[Box<dyn Any + Send + Sync>]| {
+                if let Some(converted_args) = Args::from_args(args) {
+                    callback(converted_args);
+                }
+            }));
     }
 
-    /// Emits an event with the given name and arguments.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The name of the event to emit.
-    /// * `args` - The arguments to pass to the event listeners.
-    pub fn emit(&self, event: &str, args: impl IntoArgs) {
+    pub fn emit<A>(&self, event: &str, args: A)
+    where
+        A: IntoArgs,
+    {
         let args = args.into_args();
-        let listeners = self.listeners.read();
-        if let Some(callbacks) = listeners.get(event) {
-            for (_, callback) in callbacks {
-                callback(&args);
+        let listeners = self.listeners.lock().unwrap();
+        if let Some(handlers) = listeners.get(event) {
+            for handler in handlers {
+                handler.call(&args);
             }
         }
     }
 
-    /// Returns a list of listeners for the specified event.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The name of the event to get the listeners for.
-    pub fn listeners(&self, event: &str) -> Vec<Callback> {
-        let listeners = self.listeners.read();
+    pub fn listeners(&self, event: &str) -> Vec<Arc<dyn EventHandler>> {
+        let listeners = self.listeners.lock().unwrap();
         listeners
             .get(event)
-            .map(|callbacks| callbacks.iter().map(|(_, cb)| Arc::clone(cb)).collect())
+            .map(|handlers| handlers.to_vec())
             .unwrap_or_default()
-    }
-
-    /// Returns the number of listeners for the specified event.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The name of the event to get the listener count for.
-    pub fn listener_count(&self, event: &str) -> usize {
-        let listeners = self.listeners.read();
-        listeners
-            .get(event)
-            .map(|callbacks| callbacks.len())
-            .unwrap_or(0)
-    }
-
-    /// Returns a list of all event names.
-    pub fn event_names(&self) -> Vec<String> {
-        let listeners = self.listeners.read();
-        listeners.keys().cloned().collect()
-    }
-
-    /// Returns the maximum number of listeners that can be registered for an event.
-    pub fn get_max_listeners(&self) -> usize {
-        // In this implementation, we don't have a max listeners limit
-        // You can add a field to EventEmitter to store this value if needed
-        usize::MAX
-    }
-
-    pub fn set_max_listeners(&mut self, _n: usize) {
-        // In this implementation, we don't enforce a max listeners limit
-        // You can add a field to EventEmitter to store this value if needed
-    }
-
-    /// Adds a listener to the beginning of the listeners array for the specified event.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event name to listen for.
-    /// * `callback` - The callback function to be called when the event is emitted.
-    pub fn prepend_listener<F>(&self, event: impl Into<String>, callback: F) -> usize
-    where
-        F: Fn(&Args) + Send + Sync + 'static,
-    {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let mut listeners = self.listeners.write();
-        listeners
-            .entry(event.into())
-            .or_default()
-            .insert(0, (id, Arc::new(callback)));
-        id
-    }
-
-    /// Adds a listener to the beginning of the listeners array for the specified event that will be called only once.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event name to listen for.
-    /// * `callback` - The callback function to be called when the event is emitted.
-    pub fn prepend_once_listener<F>(&self, event: impl Into<String>, callback: F)
-    where
-        F: FnOnce(&Args) + Send + Sync + 'static,
-    {
-        let weak_self = Arc::downgrade(&Arc::new(self.clone()));
-        let event = event.into();
-        let event_clone = event.clone();
-        let callback = Mutex::new(Some(callback));
-        let id = Arc::new(AtomicUsize::new(0));
-        let id_clone = Arc::clone(&id);
-        self.prepend_listener(event, move |args| {
-            let current_id = id_clone.load(Ordering::SeqCst);
-            if let Some(strong_self) = weak_self.upgrade() {
-                strong_self.remove_listener(&event_clone, current_id);
-            }
-            if let Some(cb) = callback.lock().unwrap().take() {
-                cb(args);
-            }
-        });
-        id.load(Ordering::SeqCst);
-    }
-
-    /// Removes a listener from the specified event.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event name to remove the listener from.
-    /// * `id` - The ID of the listener to remove.
-    pub fn remove_listener(&self, event: &str, id: usize) {
-        let mut listeners = self.listeners.write();
-        if let Some(callbacks) = listeners.get_mut(event) {
-            callbacks.retain(|(callback_id, _)| *callback_id != id);
-        }
-    }
-
-    /// Removes all listeners for the specified event.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event name to remove all listeners from.
-    pub fn remove_listeners(&self, event: &str) {
-        let mut listeners = self.listeners.write();
-        listeners.remove(event);
-    }
-
-    /// Removes all listeners from the emitter.
-    pub fn remove_all_listeners(&mut self) {
-        let mut listeners = self.listeners.write();
-        listeners.clear();
     }
 }
