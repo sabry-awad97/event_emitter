@@ -1,3 +1,61 @@
+use std::any::Any;
+
+type Args = Vec<Box<dyn Any + Send + Sync>>;
+
+// Define the trait `IntoArgs`
+pub trait IntoArgs {
+    fn into_args(self) -> Args;
+}
+
+impl IntoArgs for () {
+    fn into_args(self) -> Args {
+        vec![]
+    }
+}
+
+impl<T: Send + Sync + 'static> IntoArgs for (T,) {
+    fn into_args(self) -> Args {
+        vec![Box::new(self.0)]
+    }
+}
+
+impl<T: Send + Sync + 'static + Clone, U: Send + Sync + 'static + Clone> IntoArgs for (T, U) {
+    fn into_args(self) -> Args {
+        vec![Box::new(self.0), Box::new(self.1)]
+    }
+}
+
+// Define the trait `FromArgs`
+pub trait FromArgs: Sized {
+    fn from_args(args: &Args) -> Option<Self>;
+}
+
+impl FromArgs for () {
+    fn from_args(_args: &Args) -> Option<Self> {
+        Some(())
+    }
+}
+
+impl<T: Send + Sync + 'static + Clone> FromArgs for (T,) {
+    fn from_args(args: &Args) -> Option<Self> {
+        args.first()
+            .and_then(|arg| arg.downcast_ref::<T>())
+            .cloned()
+            .map(|t| (t,))
+    }
+}
+
+impl<T: Send + Sync + 'static + Clone, U: Send + Sync + 'static + Clone> FromArgs for (T, U) {
+    fn from_args(args: &Args) -> Option<Self> {
+        if args.len() < 2 {
+            return None;
+        }
+        let t = args[0].downcast_ref::<T>().cloned()?;
+        let u = args[1].downcast_ref::<U>().cloned()?;
+        Some((t, u))
+    }
+}
+
 // Helper macros for counting tuple elements
 macro_rules! count {
     ($($T:ident),+) => {

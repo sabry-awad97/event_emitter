@@ -1,3 +1,4 @@
+use args_macro::{FromArgs, IntoArgs};
 use parking_lot::RwLock;
 use std::any::Any;
 use std::collections::HashMap;
@@ -9,23 +10,6 @@ mod args_macro;
 type Args = Vec<Box<dyn Any + Send + Sync>>;
 type Callback = Arc<dyn Fn(&Args) + Send + Sync + 'static>;
 type Listeners = Arc<RwLock<HashMap<String, Vec<(usize, Callback)>>>>;
-
-// Define the trait `IntoArgs`
-pub trait IntoArgs {
-    fn into_args(self) -> Args;
-}
-
-impl IntoArgs for () {
-    fn into_args(self) -> Args {
-        vec![]
-    }
-}
-
-impl<T: Send + Sync + 'static> IntoArgs for (T,) {
-    fn into_args(self) -> Args {
-        vec![Box::new(self.0)]
-    }
-}
 
 #[derive(Clone)]
 pub struct EventEmitter {
@@ -59,45 +43,23 @@ impl EventEmitter {
     /// # Returns
     ///
     /// The ID of the registered listener, which can be used to remove it later.
-    pub fn on<F>(&self, event: impl Into<String>, callback: F) -> usize
+    pub fn on<F, A>(&self, event: impl Into<String>, callback: F) -> usize
     where
-        F: Fn(&Args) + Send + Sync + 'static,
+        F: Fn(A) + Send + Sync + 'static,
+        A: FromArgs,
     {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let wrapped_callback = Arc::new(move |args: &Args| {
+            if let Some(arg) = A::from_args(args) {
+                callback(arg);
+            }
+        });
         let mut listeners = self.listeners.write();
         listeners
             .entry(event.into())
             .or_default()
-            .push((id, Arc::new(callback)));
+            .push((id, wrapped_callback));
         id
-    }
-
-    /// Registers a callback for the specified event that will be called only once.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event name to listen for.
-    /// * `callback` - The callback function to be called when the event is emitted.
-    pub fn once<F>(&self, event: impl Into<String>, callback: F)
-    where
-        F: FnOnce(&Args) + Send + Sync + 'static,
-    {
-        let weak_self = Arc::downgrade(&Arc::new(self.clone()));
-        let event = event.into();
-        let event_clone = event.clone();
-        let callback = Mutex::new(Some(callback));
-        let id = Arc::new(AtomicUsize::new(0));
-        let id_clone = Arc::clone(&id);
-        self.on(event, move |args| {
-            let current_id = id_clone.load(Ordering::SeqCst);
-            if let Some(strong_self) = weak_self.upgrade() {
-                strong_self.remove_listener(&event_clone, current_id);
-            }
-            if let Some(cb) = callback.lock().unwrap().take() {
-                cb(args);
-            }
-        });
-        id.load(Ordering::SeqCst);
     }
 
     /// Emits an event with the given name and arguments.
