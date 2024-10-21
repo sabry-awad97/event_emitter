@@ -5,72 +5,28 @@ pub trait IntoArgs {
     fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>>;
 }
 
-// Implement IntoArgs for tuples from 1 to 5 elements
-impl<T1> IntoArgs for (T1,)
-where
-    T1: 'static + Send + Sync,
-{
-    fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-        vec![Box::new(self.0)]
-    }
+// Macro to implement IntoArgs for tuples
+macro_rules! impl_into_args {
+    ($($T:ident),+) => {
+        impl<$($T),+> IntoArgs for ($($T,)+)
+        where
+            $($T: 'static + Send + Sync,)+
+        {
+            #[allow(non_snake_case)]
+            fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
+                let ($($T,)+) = self;
+                vec![$(Box::new($T),)+]
+            }
+        }
+    };
 }
 
-impl<T1, T2> IntoArgs for (T1, T2)
-where
-    T1: 'static + Send + Sync,
-    T2: 'static + Send + Sync,
-{
-    fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-        vec![Box::new(self.0), Box::new(self.1)]
-    }
-}
-
-impl<T1, T2, T3> IntoArgs for (T1, T2, T3)
-where
-    T1: 'static + Send + Sync,
-    T2: 'static + Send + Sync,
-    T3: 'static + Send + Sync,
-{
-    fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-        vec![Box::new(self.0), Box::new(self.1), Box::new(self.2)]
-    }
-}
-
-impl<T1, T2, T3, T4> IntoArgs for (T1, T2, T3, T4)
-where
-    T1: 'static + Send + Sync,
-    T2: 'static + Send + Sync,
-    T3: 'static + Send + Sync,
-    T4: 'static + Send + Sync,
-{
-    fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-        vec![
-            Box::new(self.0),
-            Box::new(self.1),
-            Box::new(self.2),
-            Box::new(self.3),
-        ]
-    }
-}
-
-impl<T1, T2, T3, T4, T5> IntoArgs for (T1, T2, T3, T4, T5)
-where
-    T1: 'static + Send + Sync,
-    T2: 'static + Send + Sync,
-    T3: 'static + Send + Sync,
-    T4: 'static + Send + Sync,
-    T5: 'static + Send + Sync,
-{
-    fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-        vec![
-            Box::new(self.0),
-            Box::new(self.1),
-            Box::new(self.2),
-            Box::new(self.3),
-            Box::new(self.4),
-        ]
-    }
-}
+// Generate implementations for tuples of 1 to 5 elements
+impl_into_args!(T0);
+impl_into_args!(T0, T1);
+impl_into_args!(T0, T1, T2);
+impl_into_args!(T0, T1, T2, T3);
+impl_into_args!(T0, T1, T2, T3, T4);
 
 // Trait for converting from boxed Any arguments
 pub trait FromArgs: Sized {
@@ -83,16 +39,9 @@ macro_rules! count {
     ($T:ident $(,$rest:ident)*) => { 1 + count!($($rest),*) };
 }
 
-// Helper macro to generate indices for tuple elements
-macro_rules! count_index {
-    ($T:ident) => { 0 };
-    ($T:ident, $($rest:ident),+) => { 1 + count_index!($($rest),+) };
-}
-
-// Replace the previous impl_from_args macro with this corrected version:
-
 macro_rules! impl_from_args {
     ($($T:ident),+) => {
+        #[allow(unused_assignments)]
         impl<$($T),+> FromArgs for ($($T,)+)
         where
             $($T: 'static + Clone + Send + Sync,)+
@@ -145,11 +94,12 @@ mod tests {
     }
 
     #[test]
-    fn test_count_index_macro() {
-        assert_eq!(count_index!(A), 0);
-        assert_eq!(count_index!(A, B), 1);
-        assert_eq!(count_index!(A, B, C), 2);
-        assert_eq!(count_index!(A, B, C, D), 3);
-        assert_eq!(count_index!(A, B, C, D, E), 4);
+    fn test_impl_into_args_for_tuples() {
+        let tuple = (1, "hello", std::f64::consts::PI);
+        let args = tuple.into_args();
+        assert_eq!(args.len(), 3);
+        assert!(args[0].downcast_ref::<i32>().is_some());
+        assert!(args[1].downcast_ref::<&str>().is_some());
+        assert!(args[2].downcast_ref::<f64>().is_some());
     }
 }
