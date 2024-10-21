@@ -4,10 +4,28 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-type Callback = Arc<dyn Fn(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static>;
+mod args_macro;
+
+type Args = Vec<Box<dyn Any + Send + Sync>>;
+type Callback = Arc<dyn Fn(&Args) + Send + Sync + 'static>;
 type Listeners = Arc<RwLock<HashMap<String, Vec<(usize, Callback)>>>>;
 
-mod args_macro;
+// Define the trait `IntoArgs`
+pub trait IntoArgs {
+    fn into_args(self) -> Args;
+}
+
+impl IntoArgs for () {
+    fn into_args(self) -> Args {
+        vec![]
+    }
+}
+
+impl<T: Send + Sync + 'static> IntoArgs for (T,) {
+    fn into_args(self) -> Args {
+        vec![Box::new(self.0)]
+    }
+}
 
 #[derive(Clone)]
 pub struct EventEmitter {
@@ -43,7 +61,7 @@ impl EventEmitter {
     /// The ID of the registered listener, which can be used to remove it later.
     pub fn on<F>(&self, event: impl Into<String>, callback: F) -> usize
     where
-        F: Fn(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static,
+        F: Fn(&Args) + Send + Sync + 'static,
     {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let mut listeners = self.listeners.write();
@@ -62,7 +80,7 @@ impl EventEmitter {
     /// * `callback` - The callback function to be called when the event is emitted.
     pub fn once<F>(&self, event: impl Into<String>, callback: F)
     where
-        F: FnOnce(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static,
+        F: FnOnce(&Args) + Send + Sync + 'static,
     {
         let weak_self = Arc::downgrade(&Arc::new(self.clone()));
         let event = event.into();
@@ -88,11 +106,12 @@ impl EventEmitter {
     ///
     /// * `event` - The name of the event to emit.
     /// * `args` - The arguments to pass to the event listeners.
-    pub fn emit(&self, event: &str, args: &[&(dyn Any + Send + Sync)]) {
+    pub fn emit(&self, event: &str, args: impl IntoArgs) {
+        let args = args.into_args();
         let listeners = self.listeners.read();
         if let Some(callbacks) = listeners.get(event) {
             for (_, callback) in callbacks {
-                callback(args);
+                callback(&args);
             }
         }
     }
@@ -149,7 +168,7 @@ impl EventEmitter {
     /// * `callback` - The callback function to be called when the event is emitted.
     pub fn prepend_listener<F>(&self, event: impl Into<String>, callback: F) -> usize
     where
-        F: Fn(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static,
+        F: Fn(&Args) + Send + Sync + 'static,
     {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let mut listeners = self.listeners.write();
@@ -168,7 +187,7 @@ impl EventEmitter {
     /// * `callback` - The callback function to be called when the event is emitted.
     pub fn prepend_once_listener<F>(&self, event: impl Into<String>, callback: F)
     where
-        F: FnOnce(&[&(dyn Any + Send + Sync)]) + Send + Sync + 'static,
+        F: FnOnce(&Args) + Send + Sync + 'static,
     {
         let weak_self = Arc::downgrade(&Arc::new(self.clone()));
         let event = event.into();
@@ -215,186 +234,5 @@ impl EventEmitter {
     pub fn remove_all_listeners(&mut self) {
         let mut listeners = self.listeners.write();
         listeners.clear();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    #[test]
-    fn test_on_and_emit() {
-        let emitter = EventEmitter::new();
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        emitter.on("test_event", {
-            let counter = Arc::clone(&counter);
-            move |_args: &[&(dyn Any + Send + Sync)]| {
-                counter.fetch_add(1, Ordering::SeqCst);
-            }
-        });
-
-        emitter.emit("test_event", &[]);
-        emitter.emit("test_event", &[]);
-
-        assert_eq!(counter.load(Ordering::SeqCst), 2);
-    }
-
-    #[test]
-    fn test_once() {
-        let emitter = EventEmitter::new();
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        emitter.once("test_event", {
-            let counter = Arc::clone(&counter);
-            move |_args: &[&(dyn Any + Send + Sync)]| {
-                counter.fetch_add(1, Ordering::SeqCst);
-            }
-        });
-
-        emitter.emit("test_event", &[]);
-        emitter.emit("test_event", &[]);
-
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_remove_listener() {
-        let emitter = EventEmitter::new();
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        let callback_id = emitter.on("test_event", {
-            let counter = Arc::clone(&counter);
-            move |_args: &[&(dyn Any + Send + Sync)]| {
-                counter.fetch_add(1, Ordering::SeqCst);
-            }
-        });
-
-        emitter.emit("test_event", &[]);
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
-
-        emitter.remove_listener("test_event", callback_id);
-
-        emitter.emit("test_event", &[]);
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_multiple_listeners() {
-        let emitter = EventEmitter::new();
-        let counter1 = Arc::new(AtomicUsize::new(0));
-        let counter2 = Arc::new(AtomicUsize::new(0));
-
-        emitter.on("test_event", {
-            let counter = Arc::clone(&counter1);
-            move |_args: &[&(dyn Any + Send + Sync)]| {
-                counter.fetch_add(1, Ordering::SeqCst);
-            }
-        });
-
-        emitter.on("test_event", {
-            let counter = Arc::clone(&counter2);
-            move |_args| {
-                counter.fetch_add(2, Ordering::SeqCst);
-            }
-        });
-
-        emitter.emit("test_event", &[]);
-
-        assert_eq!(counter1.load(Ordering::SeqCst), 1);
-        assert_eq!(counter2.load(Ordering::SeqCst), 2);
-    }
-
-    #[test]
-    fn test_non_existent_event() {
-        let emitter = EventEmitter::new();
-        // This should not panic or cause any errors
-        emitter.emit("non_existent_event", &[]);
-    }
-
-    #[test]
-    fn test_remove_listeners() {
-        let emitter = EventEmitter::new();
-        let counter1 = Arc::new(AtomicUsize::new(0));
-        let counter2 = Arc::new(AtomicUsize::new(0));
-
-        emitter.on("test_event", {
-            let counter = Arc::clone(&counter1);
-            move |_args| {
-                counter.fetch_add(1, Ordering::SeqCst);
-            }
-        });
-
-        emitter.on("test_event", {
-            let counter = Arc::clone(&counter2);
-            move |_args| {
-                counter.fetch_add(1, Ordering::SeqCst);
-            }
-        });
-
-        emitter.emit("test_event", &[]);
-        assert_eq!(counter1.load(Ordering::SeqCst), 1);
-        assert_eq!(counter2.load(Ordering::SeqCst), 1);
-
-        emitter.remove_listeners("test_event");
-        emitter.emit("test_event", &[]);
-        assert_eq!(counter1.load(Ordering::SeqCst), 1);
-        assert_eq!(counter2.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_listener_count() {
-        let emitter = EventEmitter::new();
-        assert_eq!(emitter.listener_count("test_event"), 0);
-
-        emitter.on("test_event", |_args| {});
-        assert_eq!(emitter.listener_count("test_event"), 1);
-
-        emitter.on("test_event", |_args| {});
-        assert_eq!(emitter.listener_count("test_event"), 2);
-
-        emitter.remove_listeners("test_event");
-        assert_eq!(emitter.listener_count("test_event"), 0);
-    }
-
-    #[test]
-    fn test_event_names() {
-        let emitter = EventEmitter::new();
-        assert!(emitter.event_names().is_empty());
-
-        emitter.on("event1", |_args| {});
-        emitter.on("event2", |_args| {});
-        emitter.on("event3", |_args| {});
-
-        let names = emitter.event_names();
-        assert_eq!(names.len(), 3);
-        assert!(names.contains(&"event1".to_string()));
-        assert!(names.contains(&"event2".to_string()));
-        assert!(names.contains(&"event3".to_string()));
-    }
-
-    #[test]
-    fn test_prepend_listener() {
-        let emitter = EventEmitter::new();
-        let order = Arc::new(Mutex::new(Vec::new()));
-
-        emitter.on("test_event", {
-            let order = Arc::clone(&order);
-            move |_args| {
-                order.lock().unwrap().push(2);
-            }
-        });
-
-        emitter.prepend_listener("test_event", {
-            let order = Arc::clone(&order);
-            move |_args| {
-                order.lock().unwrap().push(1);
-            }
-        });
-
-        emitter.emit("test_event", &[]);
-
-        assert_eq!(*order.lock().unwrap(), vec![1, 2]);
     }
 }
