@@ -1,8 +1,17 @@
 [package]
-name = "events"
+name = "event_emitter"
 version = "0.1.0"
 edition = "2021"
+authors = ["Sabry Awad <dr.sabry1997@gmail.com>"]
+description = "A thread-safe event emitter library for Rust"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sabry-awad97/event_emitter"
+keywords = ["events", "emitter", "pubsub"]
+categories = ["asynchronous", "concurrency"]
+
 
 [dependencies]
 parking_lot = "0.12.3"
-tokio = { version = "1.40.0", features = ["full"] }
+
+[dev-dependencies]
+tokio = { version = "1.28.0", features = ["full"] }

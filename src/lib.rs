@@ -3,26 +3,43 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 type Callback = Arc<dyn Fn(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static>;
 type Listeners = Arc<RwLock<HashMap<String, Vec<(usize, Callback)>>>>;
 
 #[derive(Clone)]
-struct EventEmitter {
+pub struct EventEmitter {
     listeners: Listeners,
     next_id: Arc<AtomicUsize>,
 }
 
+impl Default for EventEmitter {
+    /// Creates a new `EventEmitter`.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventEmitter {
-    fn new() -> Self {
+    /// Creates a new `EventEmitter`.
+    pub fn new() -> Self {
         Self {
             listeners: Arc::new(RwLock::new(HashMap::new())),
             next_id: Arc::new(AtomicUsize::new(0)),
         }
     }
 
-    fn on<F>(&self, event: impl Into<String>, callback: F) -> usize
+    /// Registers a callback for the specified event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event name to listen for.
+    /// * `callback` - The callback function to be called when the event is emitted.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the registered listener, which can be used to remove it later.
+    pub fn on<F>(&self, event: impl Into<String>, callback: F) -> usize
     where
         F: Fn(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static,
     {
@@ -35,7 +52,13 @@ impl EventEmitter {
         id
     }
 
-    fn once<F>(&self, event: impl Into<String>, callback: F)
+    /// Registers a callback for the specified event that will be called only once.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event name to listen for.
+    /// * `callback` - The callback function to be called when the event is emitted.
+    pub fn once<F>(&self, event: impl Into<String>, callback: F)
     where
         F: FnOnce(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static,
     {
@@ -57,7 +80,13 @@ impl EventEmitter {
         id.load(Ordering::SeqCst);
     }
 
-    fn emit(&self, event: &str, args: &[Box<dyn Any + Send + Sync>]) {
+    /// Emits an event with the given name and arguments.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The name of the event to emit.
+    /// * `args` - The arguments to pass to the event listeners.
+    pub fn emit(&self, event: &str, args: &[Box<dyn Any + Send + Sync>]) {
         let listeners = self.listeners.read();
         if let Some(callbacks) = listeners.get(event) {
             for (_, callback) in callbacks {
@@ -66,7 +95,12 @@ impl EventEmitter {
         }
     }
 
-    fn listeners(&self, event: &str) -> Vec<Callback> {
+    /// Returns a list of listeners for the specified event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The name of the event to get the listeners for.
+    pub fn listeners(&self, event: &str) -> Vec<Callback> {
         let listeners = self.listeners.read();
         listeners
             .get(event)
@@ -74,8 +108,12 @@ impl EventEmitter {
             .unwrap_or_default()
     }
 
-    
-    fn listener_count(&self, event: &str) -> usize {
+    /// Returns the number of listeners for the specified event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The name of the event to get the listener count for.
+    pub fn listener_count(&self, event: &str) -> usize {
         let listeners = self.listeners.read();
         listeners
             .get(event)
@@ -83,28 +121,31 @@ impl EventEmitter {
             .unwrap_or(0)
     }
 
-    fn event_names(&self) -> Vec<String> {
+    /// Returns a list of all event names.
+    pub fn event_names(&self) -> Vec<String> {
         let listeners = self.listeners.read();
         listeners.keys().cloned().collect()
     }
 
-    fn get_max_listeners(&self) -> usize {
+    /// Returns the maximum number of listeners that can be registered for an event.
+    pub fn get_max_listeners(&self) -> usize {
         // In this implementation, we don't have a max listeners limit
         // You can add a field to EventEmitter to store this value if needed
         usize::MAX
     }
 
-    fn set_max_listeners(&mut self, _n: usize) {
+    pub fn set_max_listeners(&mut self, _n: usize) {
         // In this implementation, we don't enforce a max listeners limit
         // You can add a field to EventEmitter to store this value if needed
     }
 
-    fn raw_listeners(&self, event: &str) -> Vec<Callback> {
-        // In this implementation, raw_listeners is the same as listeners
-        self.listeners(event)
-    }
-
-    fn prepend_listener<F>(&self, event: impl Into<String>, callback: F) -> usize
+    /// Adds a listener to the beginning of the listeners array for the specified event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event name to listen for.
+    /// * `callback` - The callback function to be called when the event is emitted.
+    pub fn prepend_listener<F>(&self, event: impl Into<String>, callback: F) -> usize
     where
         F: Fn(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static,
     {
@@ -117,7 +158,13 @@ impl EventEmitter {
         id
     }
 
-    fn prepend_once_listener<F>(&self, event: impl Into<String>, callback: F)
+    /// Adds a listener to the beginning of the listeners array for the specified event that will be called only once.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event name to listen for.
+    /// * `callback` - The callback function to be called when the event is emitted.
+    pub fn prepend_once_listener<F>(&self, event: impl Into<String>, callback: F)
     where
         F: FnOnce(&[Box<dyn Any + Send + Sync>]) + Send + Sync + 'static,
     {
@@ -139,93 +186,34 @@ impl EventEmitter {
         id.load(Ordering::SeqCst);
     }
 
-    fn remove_listener(&self, event: &str, id: usize) {
+    /// Removes a listener from the specified event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event name to remove the listener from.
+    /// * `id` - The ID of the listener to remove.
+    pub fn remove_listener(&self, event: &str, id: usize) {
         let mut listeners = self.listeners.write();
         if let Some(callbacks) = listeners.get_mut(event) {
             callbacks.retain(|(callback_id, _)| *callback_id != id);
         }
     }
 
-    fn remove_listeners(&self, event: &str) {
+    /// Removes all listeners for the specified event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event name to remove all listeners from.
+    pub fn remove_listeners(&self, event: &str) {
         let mut listeners = self.listeners.write();
         listeners.remove(event);
     }
-}
 
-#[tokio::main]
-async fn main() {
-    let emitter = Arc::new(EventEmitter::new());
-
-    // Spawn a task that will emit the 'flag_set' event after 1 second
-    let handle = tokio::spawn({
-        let emitter = Arc::clone(&emitter);
-        async move {
-            println!("Task: Waiting for 1 second before setting the flag...");
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            println!("Task: Flag has been set.");
-            emitter.emit("flag_set", &[]);
-            println!("Task: 'flag_set' event has been emitted.");
-        }
-    });
-
-    println!("Main: Waiting for the flag to be set...");
-
-    // Set up a one-time listener for the 'flag_set' event
-    emitter.once("flag_set", |_args| {
-        println!("Main: Flag is set, one-time listener triggered.");
-    });
-
-    // Set up a regular listener for the 'flag_set' event
-    let listener_id = emitter.on("flag_set", |_args| {
-        println!("Main: Flag is set, regular listener triggered.");
-    });
-
-    // Wait for the event to be emitted
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    // Emit the event again to demonstrate the difference between 'on' and 'once'
-    println!("Main: Emitting 'flag_set' event again.");
-    emitter.emit("flag_set", &[]);
-
-    // Remove the regular listener for the 'flag_set' event
-    println!("Main: Removing regular listener for 'flag_set' event.");
-    emitter.remove_listener("flag_set", listener_id);
-
-    // Emit the event again to show that the regular listener is no longer triggered
-    println!("Main: Emitting 'flag_set' event after removing regular listener.");
-    emitter.emit("flag_set", &[]);
-
-    // Set up a prepended listener for the 'flag_set' event
-    emitter.prepend_listener("flag_set", |_args| {
-        println!("Main: Flag is set, prepended listener triggered.");
-    });
-
-    // Emit the event to show the prepended listener is triggered first
-    println!("Main: Emitting 'flag_set' event with prepended listener.");
-    emitter.emit("flag_set", &[]);
-
-    // Set up a prepended one-time listener for the 'flag_set' event
-    emitter.prepend_once_listener("flag_set", |_args| {
-        println!("Main: Flag is set, prepended one-time listener triggered.");
-    });
-
-    // Emit the event to show the prepended one-time listener is triggered first and only once
-    println!("Main: Emitting 'flag_set' event with prepended one-time listener.");
-    emitter.emit("flag_set", &[]);
-    println!("Main: Emitting 'flag_set' event again to show prepended one-time listener is gone.");
-    emitter.emit("flag_set", &[]);
-
-    // Remove all listeners for the 'flag_set' event
-    println!("Main: Removing all listeners for 'flag_set' event.");
-    emitter.remove_listeners("flag_set");
-
-    // Emit the event once more to show that no listeners are triggered
-    println!("Main: Emitting 'flag_set' event after removing all listeners.");
-    emitter.emit("flag_set", &[]);
-
-    // Wait for the spawned task to finish
-    handle.await.unwrap();
-    println!("Main: Spawned task has finished.");
+    /// Removes all listeners from the emitter.
+    pub fn remove_all_listeners(&mut self) {
+        let mut listeners = self.listeners.write();
+        listeners.clear();
+    }
 }
 
 #[cfg(test)]
