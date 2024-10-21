@@ -44,7 +44,12 @@ where
     T4: 'static + Send + Sync,
 {
     fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-        vec![Box::new(self.0), Box::new(self.1), Box::new(self.2), Box::new(self.3)]
+        vec![
+            Box::new(self.0),
+            Box::new(self.1),
+            Box::new(self.2),
+            Box::new(self.3),
+        ]
     }
 }
 
@@ -57,7 +62,13 @@ where
     T5: 'static + Send + Sync,
 {
     fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-        vec![Box::new(self.0), Box::new(self.1), Box::new(self.2), Box::new(self.3), Box::new(self.4)]
+        vec![
+            Box::new(self.0),
+            Box::new(self.1),
+            Box::new(self.2),
+            Box::new(self.3),
+            Box::new(self.4),
+        ]
     }
 }
 
@@ -163,6 +174,18 @@ where
     }
 }
 
+// Helper macro to count tuple elements
+macro_rules! count {
+    () => { 0 };
+    ($T:ident $(,$rest:ident)*) => { 1 + count!($($rest),*) };
+}
+
+// Helper macro to generate indices for tuple elements
+macro_rules! count_index {
+    ($T:ident) => { 0 };
+    ($T:ident, $($rest:ident),+) => { 1 + count_index!($($rest),+) };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +195,23 @@ mod tests {
         let args: Vec<Box<dyn Any + Send + Sync>> = vec![Box::new(1), Box::new(2)];
         let result: Option<(i32, i32)> = FromArgs::from_args(&args);
         assert_eq!(result, Some((1, 2)));
+    }
+
+    #[test]
+    fn test_count_macro() {
+        assert_eq!(count!(), 0);
+        assert_eq!(count!(A), 1);
+        assert_eq!(count!(A, B), 2);
+        assert_eq!(count!(A, B, C), 3);
+        assert_eq!(count!(A, B, C, D, E), 5);
+    }
+
+    #[test]
+    fn test_count_index_macro() {
+        assert_eq!(count_index!(A), 0);
+        assert_eq!(count_index!(A, B), 1);
+        assert_eq!(count_index!(A, B, C), 2);
+        assert_eq!(count_index!(A, B, C, D), 3);
+        assert_eq!(count_index!(A, B, C, D, E), 4);
     }
 }
