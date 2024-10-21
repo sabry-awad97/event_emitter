@@ -1,4 +1,5 @@
 use args_macro::{FromArgs, IntoArgs};
+use event::IntoEvent;
 use log::{debug, error, info, trace, warn};
 use parking_lot::{Mutex, RwLock};
 use smallvec::SmallVec;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 mod args_macro;
+mod event;
 
 // EventHandler trait modification
 pub trait EventHandler: Send + Sync {
@@ -68,21 +70,21 @@ impl EventEmitter {
         }
     }
 
-    pub fn once<F, Args>(&self, event: impl Into<String>, callback: F) -> usize
+    pub fn once<F, Args, E>(&self, event: E, callback: F) -> usize
     where
         F: Fn(Args) + Send + Sync + 'static,
         Args: FromArgs,
+        E: IntoEvent,
     {
+        let event = event.into_event();
         let weak_self = Arc::downgrade(&Arc::new(self.clone()));
-        let event = event.into();
-        let event_clone = event.clone();
         let callback = Mutex::new(Some(callback));
         let id = Arc::new(AtomicUsize::new(0));
         let id_clone = Arc::clone(&id);
-        self.on(event, move |args| {
+        self.on(event.clone(), move |args| {
             let current_id = id_clone.load(Ordering::SeqCst);
             if let Some(strong_self) = weak_self.upgrade() {
-                strong_self.remove_listener(&event_clone, current_id);
+                strong_self.remove_listener(&*event, current_id);
             }
             if let Some(cb) = callback.lock().take() {
                 cb(args);
@@ -91,16 +93,17 @@ impl EventEmitter {
         id.load(Ordering::SeqCst)
     }
 
-    pub fn on<F, Args>(&self, event: impl Into<String>, callback: F) -> usize
+    pub fn on<F, Args, E>(&self, event: E, callback: F) -> usize
     where
         F: Fn(Args) + Send + Sync + 'static,
         Args: FromArgs,
+        E: IntoEvent,
     {
-        let event: String = event.into();
+        let event = event.into_event();
         debug!("Registering listener for event: '{}'", event);
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let mut listeners = self.listeners.write();
-        let entry = listeners.entry(event.clone()).or_default();
+        let entry = listeners.entry(event.to_string()).or_default();
         let new_listener_count = entry.len() + 1;
 
         let event_clone = event.clone();
@@ -130,15 +133,17 @@ impl EventEmitter {
         id
     }
 
-    pub fn emit<A>(&self, event: &str, args: A) -> Result<(), EventEmitterError>
+    pub fn emit<A, E>(&self, event: E, args: A) -> Result<(), EventEmitterError>
     where
         A: IntoArgs,
+        E: IntoEvent,
     {
+        let event = event.into_event();
         debug!("Emitting event: '{}'", event);
         let args = args.into_args();
         let listeners = self.listeners.read();
 
-        if let Some(handlers) = listeners.get(event) {
+        if let Some(handlers) = listeners.get(event.as_ref()) {
             info!("Found {} handler(s) for event '{}'", handlers.len(), event);
             for (index, (id, handler)) in handlers.iter().enumerate() {
                 trace!(
@@ -181,10 +186,11 @@ impl EventEmitter {
         }
     }
 
-    pub fn listeners_count(&self, event: &str) -> usize {
+    pub fn listeners_count<E: IntoEvent>(&self, event: E) -> usize {
+        let event = event.into_event();
         debug!("Retrieving listeners count for event: {}", event);
         let listeners = self.listeners.read();
-        let count = listeners.get(event).map_or(0, |v| v.len());
+        let count = listeners.get(event.as_ref()).map_or(0, |v| v.len());
         trace!("Found {} listener(s) for event '{}'", count, event);
         count
     }
@@ -197,10 +203,11 @@ impl EventEmitter {
         info!("Removed all listeners. Total removed: {}", total_removed);
     }
 
-    pub fn remove_listener(&self, event: &str, id: usize) {
+    pub fn remove_listener<E: IntoEvent>(&self, event: E, id: usize) {
+        let event = event.into_event();
         debug!("Removing listener with ID {} for event '{}'", id, event);
         let mut listeners = self.listeners.write();
-        if let Some(callbacks) = listeners.get_mut(event) {
+        if let Some(callbacks) = listeners.get_mut(event.as_ref()) {
             let initial_count = callbacks.len();
             callbacks.retain(|(callback_id, _)| *callback_id != id);
             let removed_count = initial_count - callbacks.len();
