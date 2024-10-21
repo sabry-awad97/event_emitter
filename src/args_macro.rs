@@ -5,37 +5,6 @@ pub trait IntoArgs {
     fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>>;
 }
 
-// Macro to implement IntoArgs for tuples
-macro_rules! impl_into_args {
-    () => {
-        impl IntoArgs for () {
-            fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-                Vec::new()
-            }
-        }
-    };
-    ($($T:ident),+) => {
-        impl<$($T),+> IntoArgs for ($($T,)+)
-        where
-            $($T: 'static + Send + Sync,)+
-        {
-            #[allow(non_snake_case)]
-            fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
-                let ($($T,)+) = self;
-                vec![$(Box::new($T),)+]
-            }
-        }
-    };
-}
-
-// Generate implementations for tuples of 0 to 5 elements
-impl_into_args!();
-impl_into_args!(T0);
-impl_into_args!(T0, T1);
-impl_into_args!(T0, T1, T2);
-impl_into_args!(T0, T1, T2, T3);
-impl_into_args!(T0, T1, T2, T3, T4);
-
 // Trait for converting from boxed Any arguments
 pub trait FromArgs: Sized {
     fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self>;
@@ -48,7 +17,7 @@ macro_rules! count {
 }
 
 // Macro to implement FromArgs for tuples
-macro_rules! impl_from_args {
+macro_rules! impl_args {
     () => {
         impl FromArgs for () {
             fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
@@ -57,6 +26,12 @@ macro_rules! impl_from_args {
                 } else {
                     None
                 }
+            }
+        }
+
+        impl IntoArgs for () {
+            fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
+                Vec::new()
             }
         }
     };
@@ -83,16 +58,33 @@ macro_rules! impl_from_args {
                 }
             }
         }
+
+        impl<$($T),+> IntoArgs for ($($T,)+)
+        where
+            $($T: 'static + Send + Sync,)+
+        {
+            #[allow(non_snake_case)]
+            fn into_args(self) -> Vec<Box<dyn Any + Send + Sync>> {
+                let ($($T,)+) = self;
+                vec![$(Box::new($T),)+]
+            }
+        }
     };
 }
 
 // Generate implementations for tuples of 0 to 5 elements
-impl_from_args!();
-impl_from_args!(T0);
-impl_from_args!(T0, T1);
-impl_from_args!(T0, T1, T2);
-impl_from_args!(T0, T1, T2, T3);
-impl_from_args!(T0, T1, T2, T3, T4);
+impl_args!();
+impl_args!(T0);
+impl_args!(T0, T1);
+impl_args!(T0, T1, T2);
+impl_args!(T0, T1, T2, T3);
+impl_args!(T0, T1, T2, T3, T4);
+impl_args!(T0, T1, T2, T3, T4, T5);
+impl_args!(T0, T1, T2, T3, T4, T5, T6);
+impl_args!(T0, T1, T2, T3, T4, T5, T6, T7);
+impl_args!(T0, T1, T2, T3, T4, T5, T6, T7, T8);
+impl_args!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_args!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
 
 #[cfg(test)]
 mod tests {
