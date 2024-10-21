@@ -98,8 +98,8 @@ impl EventEmitter {
         ));
 
         info!(
-            "Listener registered successfully for event '{}'. Total listeners: {}",
-            event, new_listener_count
+            "Listener registered successfully for event '{}'. Total listeners: {}. Listener ID: {}",
+            event, new_listener_count, id
         );
         id
     }
@@ -114,10 +114,11 @@ impl EventEmitter {
 
         if let Some(handlers) = listeners.get(event) {
             info!("Found {} handler(s) for event '{}'", handlers.len(), event);
-            for (index, (_, handler)) in handlers.iter().enumerate() {
+            for (index, (id, handler)) in handlers.iter().enumerate() {
                 trace!(
-                    "Executing handler {} of {} for event '{}'",
+                    "Executing handler {} (ID: {}) of {} for event '{}'",
                     index + 1,
+                    id,
                     handlers.len(),
                     event
                 );
@@ -125,13 +126,15 @@ impl EventEmitter {
                     handler.call(&args);
                 })) {
                     Ok(_) => trace!(
-                        "Handler {} for event '{}' executed successfully",
+                        "Handler {} (ID: {}) for event '{}' executed successfully",
                         index + 1,
+                        id,
                         event
                     ),
                     Err(e) => error!(
-                        "Handler {} for event '{}' panicked: {:?}",
+                        "Handler {} (ID: {}) for event '{}' panicked: {:?}",
                         index + 1,
+                        id,
                         event,
                         e
                     ),
@@ -152,19 +155,38 @@ impl EventEmitter {
     pub fn listeners_count(&self, event: &str) -> usize {
         debug!("Retrieving listeners count for event: {}", event);
         let listeners = self.listeners.read();
-        listeners.get(event).cloned().unwrap_or_default().len()
+        let count = listeners.get(event).map_or(0, |v| v.len());
+        trace!("Found {} listener(s) for event '{}'", count, event);
+        count
     }
 
     pub fn remove_listeners(&self) {
         debug!("Removing all listeners");
         let mut listeners = self.listeners.write();
+        let total_removed = listeners.len();
         listeners.clear();
+        info!("Removed all listeners. Total removed: {}", total_removed);
     }
 
     pub fn remove_listener(&self, event: &str, id: usize) {
+        debug!("Removing listener with ID {} for event '{}'", id, event);
         let mut listeners = self.listeners.write();
         if let Some(callbacks) = listeners.get_mut(event) {
+            let initial_count = callbacks.len();
             callbacks.retain(|(callback_id, _)| *callback_id != id);
+            let removed_count = initial_count - callbacks.len();
+            if removed_count > 0 {
+                info!(
+                    "Removed listener with ID {} for event '{}'. {} listener(s) remaining.",
+                    id,
+                    event,
+                    callbacks.len()
+                );
+            } else {
+                warn!("No listener found with ID {} for event '{}'", id, event);
+            }
+        } else {
+            warn!("No listeners found for event '{}'", event);
         }
     }
 }
