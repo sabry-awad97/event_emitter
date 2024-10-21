@@ -77,103 +77,6 @@ pub trait FromArgs: Sized {
     fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self>;
 }
 
-// Implement FromArgs for tuples from 1 to 5 elements
-impl<T1> FromArgs for (T1,)
-where
-    T1: 'static + Clone + Send + Sync,
-{
-    fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
-        if args.len() == 1 {
-            let arg1 = args[0].downcast_ref::<T1>()?;
-            Some((arg1.clone(),))
-        } else {
-            None
-        }
-    }
-}
-
-impl<T1, T2> FromArgs for (T1, T2)
-where
-    T1: 'static + Clone + Send + Sync,
-    T2: 'static + Clone + Send + Sync,
-{
-    fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
-        if args.len() == 2 {
-            let arg1 = args[0].downcast_ref::<T1>()?;
-            let arg2 = args[1].downcast_ref::<T2>()?;
-            Some((arg1.clone(), arg2.clone()))
-        } else {
-            None
-        }
-    }
-}
-
-impl<T1, T2, T3> FromArgs for (T1, T2, T3)
-where
-    T1: 'static + Clone + Send + Sync,
-    T2: 'static + Clone + Send + Sync,
-    T3: 'static + Clone + Send + Sync,
-{
-    fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
-        if args.len() == 3 {
-            let arg1 = args[0].downcast_ref::<T1>()?;
-            let arg2 = args[1].downcast_ref::<T2>()?;
-            let arg3 = args[2].downcast_ref::<T3>()?;
-            Some((arg1.clone(), arg2.clone(), arg3.clone()))
-        } else {
-            None
-        }
-    }
-}
-
-impl<T1, T2, T3, T4> FromArgs for (T1, T2, T3, T4)
-where
-    T1: 'static + Clone + Send + Sync,
-    T2: 'static + Clone + Send + Sync,
-    T3: 'static + Clone + Send + Sync,
-    T4: 'static + Clone + Send + Sync,
-{
-    fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
-        if args.len() == 4 {
-            let arg1 = args[0].downcast_ref::<T1>()?;
-            let arg2 = args[1].downcast_ref::<T2>()?;
-            let arg3 = args[2].downcast_ref::<T3>()?;
-            let arg4 = args[3].downcast_ref::<T4>()?;
-            Some((arg1.clone(), arg2.clone(), arg3.clone(), arg4.clone()))
-        } else {
-            None
-        }
-    }
-}
-
-impl<T1, T2, T3, T4, T5> FromArgs for (T1, T2, T3, T4, T5)
-where
-    T1: 'static + Clone + Send + Sync,
-    T2: 'static + Clone + Send + Sync,
-    T3: 'static + Clone + Send + Sync,
-    T4: 'static + Clone + Send + Sync,
-    T5: 'static + Clone + Send + Sync,
-{
-    fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
-        if args.len() == 5 {
-            let arg1 = args[0].downcast_ref::<T1>()?;
-            let arg2 = args[1].downcast_ref::<T2>()?;
-            let arg3 = args[2].downcast_ref::<T3>()?;
-            let arg4 = args[3].downcast_ref::<T4>()?;
-            let arg5 = args[4].downcast_ref::<T5>()?;
-            Some((
-                arg1.clone(),
-                arg2.clone(),
-                arg3.clone(),
-                arg4.clone(),
-                arg5.clone(),
-            ))
-        } else {
-            None
-        }
-    }
-}
-
 // Helper macro to count tuple elements
 macro_rules! count {
     () => { 0 };
@@ -185,6 +88,41 @@ macro_rules! count_index {
     ($T:ident) => { 0 };
     ($T:ident, $($rest:ident),+) => { 1 + count_index!($($rest),+) };
 }
+
+// Replace the previous impl_from_args macro with this corrected version:
+
+macro_rules! impl_from_args {
+    ($($T:ident),+) => {
+        impl<$($T),+> FromArgs for ($($T,)+)
+        where
+            $($T: 'static + Clone + Send + Sync,)+
+        {
+            fn from_args(args: &[Box<dyn Any + Send + Sync>]) -> Option<Self> {
+                if args.len() == count!($($T),+) {
+                    let mut index = 0;
+                    Some((
+                        $(
+                            {
+                                let arg = args[index].downcast_ref::<$T>()?.clone();
+                                index += 1;
+                                arg
+                            },
+                        )+
+                    ))
+                } else {
+                    None
+                }
+            }
+        }
+    };
+}
+
+// Generate implementations for tuples of 1 to 5 elements
+impl_from_args!(T1);
+impl_from_args!(T1, T2);
+impl_from_args!(T1, T2, T3);
+impl_from_args!(T1, T2, T3, T4);
+impl_from_args!(T1, T2, T3, T4, T5);
 
 #[cfg(test)]
 mod tests {
