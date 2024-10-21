@@ -1,6 +1,7 @@
 use event_emitter::EventEmitter;
 
 fn main() {
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
     let emitter = EventEmitter::new();
 
     // Register a listener for the "user_login" event
