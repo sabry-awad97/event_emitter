@@ -1,9 +1,10 @@
-use std::any::Any;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
 use args_macro::{FromArgs, IntoArgs};
 use log::{debug, error, info, trace, warn};
+use parking_lot::RwLock;
+use smallvec::SmallVec;
+use std::any::Any;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 mod args_macro;
 
@@ -22,7 +23,7 @@ where
     }
 }
 
-type ListenerMap = Arc<Mutex<HashMap<String, Vec<Arc<dyn EventHandler>>>>>;
+type ListenerMap = Arc<RwLock<HashMap<String, SmallVec<[Arc<dyn EventHandler>; 4]>>>>;
 
 // EventEmitter struct
 #[derive(Clone, Default)]
@@ -34,7 +35,7 @@ impl EventEmitter {
     pub fn new() -> Self {
         debug!("Creating new EventEmitter");
         EventEmitter {
-            listeners: Arc::new(Mutex::new(HashMap::new())),
+            listeners: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -44,17 +45,7 @@ impl EventEmitter {
         Args: FromArgs,
     {
         debug!("Registering listener for event: '{}'", event);
-        let mut listeners = match self.listeners.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                error!(
-                    "Mutex poisoned while registering listener for event '{}'. Recovering.",
-                    event
-                );
-                poisoned.into_inner()
-            }
-        };
-
+        let mut listeners = self.listeners.write();
         let entry = listeners.entry(event.to_string()).or_default();
         let new_listener_count = entry.len() + 1;
 
@@ -87,65 +78,54 @@ impl EventEmitter {
     {
         debug!("Emitting event: '{}'", event);
         let args = args.into_args();
-        let listeners = match self.listeners.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                error!(
-                    "Mutex poisoned while emitting event '{}'. Recovering.",
-                    event
-                );
-                poisoned.into_inner()
-            }
-        };
+        let listeners = self.listeners.read();
 
-        match listeners.get(event) {
-            Some(handlers) => {
-                info!("Found {} handler(s) for event '{}'", handlers.len(), event);
-                for (index, handler) in handlers.iter().enumerate() {
-                    trace!(
-                        "Executing handler {} of {} for event '{}'",
+        if let Some(handlers) = listeners.get(event) {
+            info!("Found {} handler(s) for event '{}'", handlers.len(), event);
+            for (index, handler) in handlers.iter().enumerate() {
+                trace!(
+                    "Executing handler {} of {} for event '{}'",
+                    index + 1,
+                    handlers.len(),
+                    event
+                );
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    handler.call(&args);
+                })) {
+                    Ok(_) => trace!(
+                        "Handler {} for event '{}' executed successfully",
                         index + 1,
-                        handlers.len(),
                         event
-                    );
-                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        handler.call(&args);
-                    })) {
-                        Ok(_) => trace!(
-                            "Handler {} for event '{}' executed successfully",
-                            index + 1,
-                            event
-                        ),
-                        Err(e) => error!(
-                            "Handler {} for event '{}' panicked: {:?}",
-                            index + 1,
-                            event,
-                            e
-                        ),
-                    }
+                    ),
+                    Err(e) => error!(
+                        "Handler {} for event '{}' panicked: {:?}",
+                        index + 1,
+                        event,
+                        e
+                    ),
                 }
-                info!(
-                    "Finished emitting event '{}'. All handlers executed.",
-                    event
-                );
             }
-            None => {
-                warn!(
-                    "No handlers found for event '{}'. Event not emitted.",
-                    event
-                );
-            }
+            info!(
+                "Finished emitting event '{}'. All handlers executed.",
+                event
+            );
+        } else {
+            warn!(
+                "No handlers found for event '{}'. Event not emitted.",
+                event
+            );
         }
     }
 
-    pub fn listeners(&self, event: &str) -> Vec<Arc<dyn EventHandler>> {
+    pub fn listeners(&self, event: &str) -> SmallVec<[Arc<dyn EventHandler>; 4]> {
         debug!("Retrieving listeners for event: {}", event);
-        let listeners = self.listeners.lock().unwrap();
-        let handlers = listeners
-            .get(event)
-            .map(|handlers| handlers.to_vec())
-            .unwrap_or_default();
-        trace!("Found {} listeners for event: {}", handlers.len(), event);
-        handlers
+        let listeners = self.listeners.read();
+        listeners.get(event).cloned().unwrap_or_default()
+    }
+
+    pub fn remove_listener(&self, event: &str) {
+        debug!("Removing listeners for event: {}", event);
+        let mut listeners = self.listeners.write();
+        listeners.remove(event);
     }
 }

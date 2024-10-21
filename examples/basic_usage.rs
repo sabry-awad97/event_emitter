@@ -1,3 +1,4 @@
+use colored::*;
 use event_emitter::EventEmitter;
 
 fn main() {
@@ -6,18 +7,25 @@ fn main() {
 
     // Register a listener for the "user_login" event
     emitter.on("user_login", |(username, timestamp): (String, u64)| {
-        println!("User '{}' logged in at timestamp: {}", username, timestamp);
+        println!(
+            "{} '{}' logged in at timestamp: {}",
+            "User".green(),
+            username.blue(),
+            timestamp
+        );
     });
 
     // Register a listener for the "user_logout" event
     emitter.on("user_logout", |(username,): (String,)| {
-        println!("User '{}' logged out", username);
+        println!("{} '{}' logged out", "User".green(), username.blue());
     });
 
     // Simulate user activities
     emitter.emit("user_login", ("alice".to_string(), 1623456789u64));
     emitter.emit("user_login", ("bob".to_string(), 1623456790u64));
     emitter.emit("user_logout", ("alice".to_string(),));
+
+    emitter.remove_listener("user_login");
 
     // This login event will be logged
     emitter.emit("user_login", ("charlie".to_string(), 1623456791u64));
@@ -27,11 +35,14 @@ fn main() {
 
     // Print the number of listeners for each event
     println!(
-        "Active listeners for 'user_login': {}",
-        emitter.listeners("user_login").len()
+        "{} for 'user_login': {}",
+        "Active listeners".yellow(),
+        emitter.listeners("user_login").len().to_string().red()
     );
+
     println!(
-        "Active listeners for 'user_logout': {}",
-        emitter.listeners("user_logout").len()
+        "{} for 'user_logout': {}",
+        "Active listeners".yellow(),
+        emitter.listeners("user_logout").len().to_string().red()
     );
 }
