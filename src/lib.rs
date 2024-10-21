@@ -47,7 +47,10 @@ impl EventEmitter {
         let mut listeners = match self.listeners.lock() {
             Ok(guard) => guard,
             Err(poisoned) => {
-                error!("Mutex poisoned while registering listener for event '{}'. Recovering.", event);
+                error!(
+                    "Mutex poisoned while registering listener for event '{}'. Recovering.",
+                    event
+                );
                 poisoned.into_inner()
             }
         };
@@ -56,17 +59,26 @@ impl EventEmitter {
         let new_listener_count = entry.len() + 1;
 
         let event_clone = event.to_string();
-        entry.push(Arc::new(move |args: &[Box<dyn Any + Send + Sync>]| {
-            match Args::from_args(args) {
+        entry.push(Arc::new(
+            move |args: &[Box<dyn Any + Send + Sync>]| match Args::from_args(args) {
                 Some(converted_args) => {
-                    trace!("Executing callback for event '{}' with converted arguments", event_clone);
+                    trace!(
+                        "Executing callback for event '{}' with converted arguments",
+                        event_clone
+                    );
                     callback(converted_args);
-                },
-                None => warn!("Failed to convert arguments for event '{}'. Callback not executed.", event_clone),
-            }
-        }));
+                }
+                None => warn!(
+                    "Failed to convert arguments for event '{}'. Callback not executed.",
+                    event_clone
+                ),
+            },
+        ));
 
-        info!("Listener registered successfully for event '{}'. Total listeners: {}", event, new_listener_count);
+        info!(
+            "Listener registered successfully for event '{}'. Total listeners: {}",
+            event, new_listener_count
+        );
     }
 
     pub fn emit<A>(&self, event: &str, args: A)
@@ -78,7 +90,10 @@ impl EventEmitter {
         let listeners = match self.listeners.lock() {
             Ok(guard) => guard,
             Err(poisoned) => {
-                error!("Mutex poisoned while emitting event '{}'. Recovering.", event);
+                error!(
+                    "Mutex poisoned while emitting event '{}'. Recovering.",
+                    event
+                );
                 poisoned.into_inner()
             }
         };
@@ -87,18 +102,38 @@ impl EventEmitter {
             Some(handlers) => {
                 info!("Found {} handler(s) for event '{}'", handlers.len(), event);
                 for (index, handler) in handlers.iter().enumerate() {
-                    trace!("Executing handler {} of {} for event '{}'", index + 1, handlers.len(), event);
+                    trace!(
+                        "Executing handler {} of {} for event '{}'",
+                        index + 1,
+                        handlers.len(),
+                        event
+                    );
                     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         handler.call(&args);
                     })) {
-                        Ok(_) => trace!("Handler {} for event '{}' executed successfully", index + 1, event),
-                        Err(e) => error!("Handler {} for event '{}' panicked: {:?}", index + 1, event, e),
+                        Ok(_) => trace!(
+                            "Handler {} for event '{}' executed successfully",
+                            index + 1,
+                            event
+                        ),
+                        Err(e) => error!(
+                            "Handler {} for event '{}' panicked: {:?}",
+                            index + 1,
+                            event,
+                            e
+                        ),
                     }
                 }
-                info!("Finished emitting event '{}'. All handlers executed.", event);
+                info!(
+                    "Finished emitting event '{}'. All handlers executed.",
+                    event
+                );
             }
             None => {
-                warn!("No handlers found for event '{}'. Event not emitted.", event);
+                warn!(
+                    "No handlers found for event '{}'. Event not emitted.",
+                    event
+                );
             }
         }
     }
