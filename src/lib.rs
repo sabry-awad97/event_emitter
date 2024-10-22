@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use thiserror::Error;
 
 mod args_macro;
 mod event;
@@ -29,15 +28,6 @@ where
 }
 
 type ListenerMap = Arc<RwLock<HashMap<String, SmallVec<[(usize, Arc<dyn EventHandler>); 4]>>>>;
-
-// Define custom error types
-#[derive(Error, Debug)]
-pub enum EventEmitterError {
-    #[error("Failed to convert arguments for event '{0}'")]
-    ArgumentConversionError(String),
-    #[error("No handlers found for event '{0}'")]
-    NoHandlersFound(String),
-}
 
 // EventEmitter struct
 #[derive(Clone)]
@@ -234,15 +224,17 @@ impl EventEmitter {
     }
 }
 
-// Add tests
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn test_event_emitter() {
         let emitter = EventEmitter::new();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = mpsc::channel();
 
         emitter.on("test", move |args: (i32,)| {
             tx.send(args.0).unwrap();
@@ -252,5 +244,123 @@ mod tests {
         assert_eq!(rx.recv().unwrap(), 42);
     }
 
-    // Add more tests...
+    #[test]
+    fn test_multiple_listeners() {
+        let emitter = EventEmitter::new();
+        let (tx1, rx1) = mpsc::channel();
+        let (tx2, rx2) = mpsc::channel();
+
+        emitter.on("multi", move |args: (String,)| {
+            tx1.send(args.0.clone()).unwrap();
+        });
+        emitter.on("multi", move |args: (String,)| {
+            tx2.send(args.0.clone()).unwrap();
+        });
+
+        emitter.emit("multi", ("Hello".to_string(),));
+
+        assert_eq!(rx1.recv().unwrap(), "Hello");
+        assert_eq!(rx2.recv().unwrap(), "Hello");
+    }
+
+    #[test]
+    fn test_once() {
+        let emitter = EventEmitter::new();
+        let (tx, rx) = mpsc::channel();
+
+        emitter.once("once", move |args: (i32,)| {
+            tx.send(args.0).unwrap();
+        });
+
+        emitter.emit("once", (1,));
+        emitter.emit("once", (2,));
+
+        assert_eq!(rx.recv().unwrap(), 1);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_remove_listener() {
+        let emitter = EventEmitter::new();
+        let (tx, rx) = mpsc::channel();
+
+        let id = emitter.on("remove", move |args: (i32,)| {
+            tx.send(args.0).unwrap();
+        });
+
+        emitter.emit("remove", (1,));
+        assert_eq!(rx.recv().unwrap(), 1);
+
+        emitter.remove_listener("remove", id);
+        emitter.emit("remove", (2,));
+
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_remove_all_listeners() {
+        let emitter = EventEmitter::new();
+        let (tx1, rx1) = mpsc::channel();
+        let (tx2, rx2) = mpsc::channel();
+
+        emitter.on("event1", move |args: (i32,)| {
+            tx1.send(args.0).unwrap();
+        });
+        emitter.on("event2", move |args: (i32,)| {
+            tx2.send(args.0).unwrap();
+        });
+
+        emitter.remove_listeners();
+
+        emitter.emit("event1", (1,));
+        emitter.emit("event2", (2,));
+
+        assert!(rx1.try_recv().is_err());
+        assert!(rx2.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_listeners_count() {
+        let emitter = EventEmitter::new();
+
+        assert_eq!(emitter.listeners_count("test"), 0);
+
+        emitter.on("test", |_: ()| {});
+        assert_eq!(emitter.listeners_count("test"), 1);
+
+        emitter.on("test", |_: ()| {});
+        assert_eq!(emitter.listeners_count("test"), 2);
+
+        emitter.on("other", |_: ()| {});
+        assert_eq!(emitter.listeners_count("test"), 2);
+        assert_eq!(emitter.listeners_count("other"), 1);
+    }
+
+    #[test]
+    fn test_max_listeners() {
+        let mut emitter = EventEmitter::new();
+        assert_eq!(emitter.get_max_listeners(), NonZeroUsize::new(10).unwrap());
+
+        emitter.set_max_listeners(NonZeroUsize::new(5).unwrap());
+        assert_eq!(emitter.get_max_listeners(), NonZeroUsize::new(5).unwrap());
+    }
+
+    #[test]
+    fn test_thread_safety() {
+        let emitter = Arc::new(EventEmitter::new());
+        let (tx, rx) = mpsc::channel();
+
+        let emitter_clone = Arc::clone(&emitter);
+        let handle = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            emitter_clone.emit("threaded", ("Hello from thread".to_string(),));
+        });
+
+        emitter.on("threaded", move |args: (String,)| {
+            tx.send(args.0).unwrap();
+        });
+
+        handle.join().unwrap();
+        assert_eq!(rx.recv().unwrap(), "Hello from thread");
+    }
 }
