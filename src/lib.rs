@@ -1,5 +1,3 @@
-use args_macro::{FromArgs, IntoArgs};
-use event::IntoEvent;
 use log::{debug, error, info, trace, warn};
 use parking_lot::{Mutex, RwLock};
 use smallvec::SmallVec;
@@ -9,8 +7,11 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use args_macro::{FromArgs, IntoArgs};
+pub use event::IntoEvent;
+
 mod args_macro;
-mod event;
+pub mod event;
 
 // EventHandler trait modification
 pub trait EventHandler: Send + Sync {

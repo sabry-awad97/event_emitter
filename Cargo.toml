@@ -14,9 +14,9 @@ categories = ["asynchronous", "concurrency"]
 log = "0.4.22"
 parking_lot = "0.12.3"
 smallvec = "1.13.2"
-thiserror = "1.0.64"
 
 [dev-dependencies]
 colored = "2.1.0"
 env_logger = "0.11.1"
 tokio = { version = "1.28.0", features = ["full"] }
+thiserror = "1.0.64"
